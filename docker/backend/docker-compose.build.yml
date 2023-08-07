@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  build:
+    dockerfile: Dockerfile
+    tags:
+      - "backend:latest"
+    args:
+      - git_branch=main
+    container_name: openems_backend
+    hostname: openems_backend
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "8079:8079"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /docker/openems_stack/backend/conf:/config:rw
+      - /docker/openems_stack/backend/data:/data:rw
