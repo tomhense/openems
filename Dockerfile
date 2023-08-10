@@ -96,8 +96,8 @@ FROM scratch AS ui_export
 COPY --from=build_ui /src/ui/target/ /ui
 
 
-### Build edge container
-FROM ghcr.io/linuxserver/baseimage-alpine:edge AS edge_container
+### Build jar container base
+FROM ghcr.io/linuxserver/baseimage-alpine:edge AS base_container
 
 ARG JAVA_VERSION
 
@@ -105,6 +105,10 @@ RUN apk update && apk upgrade
 
 RUN apk add --no-cache \
     ${JAVA_VERSION}-jre-headless
+
+
+### Build edge container
+FROM base_container AS edge_container
 
 COPY --from=build_edge /src/build /app
 COPY docker/edge/root/ /
@@ -118,14 +122,7 @@ EXPOSE 8080
 
 
 ### Build backend container
-FROM ghcr.io/linuxserver/baseimage-alpine:edge AS backend_container
-
-ARG JAVA_VERSION
-
-RUN apk update && apk upgrade
-
-RUN apk add --no-cache \
-    ${JAVA_VERSION}-jre-headless
+FROM base_container AS backend_container
 
 COPY --from=build_backend /src/build /app
 COPY docker/backend/root/ /
