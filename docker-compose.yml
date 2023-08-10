@@ -10,16 +10,12 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
-      - /docker/openems_stack/edge/conf:/config:rw
-      - /docker/openems_stack/edge/data:/data:rw
-  openems_edgeui:
-    image: edgeui:latest
-    container_name: openems_edgeui
-    hostname: openems_edgeui
+  openems_ui:
+    image: ui:latest
+    container_name: openems_ui
+    hostname: openems_ui
     restart: unless-stopped
     stop_grace_period: 30s
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
-      - /docker/openems_stack/edgeui/conf:/config:rw
-      - /docker/openems_stack/edgeui/log:/log:rw

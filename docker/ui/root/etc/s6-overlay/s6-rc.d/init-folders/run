@@ -3,7 +3,7 @@
 
 # make folders
 mkdir -p \
-    /config \
+    /config/keys \
     /log/nginx \
     /run \
     /var/lib/nginx/tmp/client_body \
