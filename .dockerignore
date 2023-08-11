@@ -1,5 +1,9 @@
-README.md
-.env
-.git
 Dockerfile
 build
+.env
+.git
+.gitignore
+.github
+.gitattributes
+READMETEMPLATE.md
+README.md

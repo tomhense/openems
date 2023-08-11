@@ -8,6 +8,10 @@ services:
     restart: unless-stopped
     volumes:
       - /etc/localtime:/etc/localtime:ro
+      - openemsedge-conf:/config
+      - openemsedge-data:/data
+    ports:
+      - 8080:8080
   openems_backend:
     image: backend:latest
     container_name: openems_backend
@@ -15,6 +19,10 @@ services:
     restart: unless-stopped
     volumes:
       - /etc/localtime:/etc/localtime:ro
+      - openemsbackend-conf:/config
+      - openemsbackend-data:/data
+    ports:
+      - 8079:8079
   openems_ui:
     image: ui:latest
     container_name: openems_ui
@@ -22,3 +30,8 @@ services:
     restart: unless-stopped
     volumes:
       - /etc/localtime:/etc/localtime:ro
+      - openemsui-conf:/config
+      - openemsui-log:/log
+    ports:
+      - 80:80
+      - 443:443

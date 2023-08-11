@@ -63,7 +63,7 @@ http {
     access_log /log/nginx/access.log;
 
     # Includes virtual hosts configs.
-    include /config/http.d/*.conf;
+    include /config/site-confs/*.conf;
 }
 
 daemon off;
