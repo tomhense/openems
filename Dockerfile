@@ -118,7 +118,7 @@ RUN mkdir -p /config /data
 VOLUME /config
 VOLUME /data
 
-EXPOSE 8080
+EXPOSE 8080 8084 8085 502
 
 
 ### Build backend container
@@ -132,7 +132,7 @@ RUN mkdir -p /config /data
 VOLUME /config
 VOLUME /data
 
-EXPOSE 8079
+EXPOSE 8079 8081
 
 
 ### Build ui container
