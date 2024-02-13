@@ -8,14 +8,14 @@ import { saveAs } from 'file-saver-es';
 
 @Component({
     selector: 'energy',
-    templateUrl: './flat.html'
+    templateUrl: './flat.html',
 })
 export class FlatComponent extends AbstractFlatWidget {
 
     protected autarchyValue: number | null;
     private static readonly EXCEL_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8';
     private static readonly EXCEL_EXTENSION = '.xlsx';
-
+    protected readonly isSmartphoneResolution = this.service.isSmartphoneResolution;
 
     protected override onCurrentData(currentData: CurrentData) {
         this.autarchyValue =
@@ -27,7 +27,7 @@ export class FlatComponent extends AbstractFlatWidget {
     protected override getChannelAddresses(): ChannelAddress[] {
         return [
             new ChannelAddress('_sum', 'GridBuyActiveEnergy'),
-            new ChannelAddress('_sum', 'ConsumptionActiveEnergy')
+            new ChannelAddress('_sum', 'ConsumptionActiveEnergy'),
         ];
     }
 
@@ -50,7 +50,7 @@ export class FlatComponent extends AbstractFlatWidget {
                     view[i] = binary.charCodeAt(i);
                 }
                 const data: Blob = new Blob([view], {
-                    type: FlatComponent.EXCEL_TYPE
+                    type: FlatComponent.EXCEL_TYPE,
                 });
 
                 let fileName = "Export-" + edge.id + "-";

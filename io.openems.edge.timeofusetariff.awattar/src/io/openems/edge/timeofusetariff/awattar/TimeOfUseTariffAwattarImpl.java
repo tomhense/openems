@@ -1,5 +1,7 @@
 package io.openems.edge.timeofusetariff.awattar;
 
+import static io.openems.edge.timeofusetariff.api.utils.TimeOfUseTariffUtils.generateDebugLog;
+
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
@@ -30,6 +32,7 @@ import io.openems.common.utils.ThreadPoolUtils;
 import io.openems.edge.common.component.AbstractOpenemsComponent;
 import io.openems.edge.common.component.ComponentManager;
 import io.openems.edge.common.component.OpenemsComponent;
+import io.openems.edge.common.meta.Meta;
 import io.openems.edge.timeofusetariff.api.TimeOfUsePrices;
 import io.openems.edge.timeofusetariff.api.TimeOfUseTariff;
 import io.openems.edge.timeofusetariff.api.utils.TimeOfUseTariffUtils;
@@ -45,15 +48,17 @@ import okhttp3.Request;
 public class TimeOfUseTariffAwattarImpl extends AbstractOpenemsComponent
 		implements TimeOfUseTariff, OpenemsComponent, TimeOfUseTariffAwattar {
 
-	private static final String AWATTAR_API_URL = "https://api.awattar.de/v1/marketdata";
-
 	private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
 	private final AtomicReference<ImmutableSortedMap<ZonedDateTime, Float>> prices = new AtomicReference<>(
 			ImmutableSortedMap.of());
 
 	@Reference
+	private Meta meta;
+
+	@Reference
 	private ComponentManager componentManager;
 
+	private Config config = null;
 	private ZonedDateTime updateTimeStamp = null;
 
 	public TimeOfUseTariffAwattarImpl() {
@@ -71,6 +76,7 @@ public class TimeOfUseTariffAwattarImpl extends AbstractOpenemsComponent
 			return;
 		}
 
+		this.config = config;
 		this.executor.schedule(this.task, 0, TimeUnit.SECONDS);
 	}
 
@@ -87,8 +93,9 @@ public class TimeOfUseTariffAwattarImpl extends AbstractOpenemsComponent
 		 * Update Map of prices
 		 */
 		var client = new OkHttpClient();
+		final var url = this.config.zone().toUrl();
 		var request = new Request.Builder() //
-				.url(AWATTAR_API_URL) //
+				.url(url) //
 				// aWATTar currently does not anymore require an Apikey.
 				// .header("Authorization", Credentials.basic(apikey, "")) //
 				.build();
@@ -115,16 +122,13 @@ public class TimeOfUseTariffAwattarImpl extends AbstractOpenemsComponent
 		this.channel(TimeOfUseTariffAwattar.ChannelId.HTTP_STATUS_CODE).setNextValue(httpStatusCode);
 
 		/*
-		 * Schedule next price update for 2 pm
+		 * Schedule next price update every hour
 		 */
 		var now = ZonedDateTime.now();
-		var nextRun = now.withHour(14).truncatedTo(ChronoUnit.HOURS);
-		if (now.isAfter(nextRun)) {
-			nextRun = nextRun.plusDays(1);
-		}
-
-		var duration = Duration.between(now, nextRun);
-		var delay = duration.getSeconds();
+		// We query every hour since Awattar gives the prices for only next 24 hours
+		// instead of 96.
+		var nextRun = now.plusHours(1).truncatedTo(ChronoUnit.HOURS);
+		var delay = Duration.between(now, nextRun).getSeconds();
 
 		this.executor.schedule(this.task, delay, TimeUnit.SECONDS);
 	};
@@ -162,7 +166,7 @@ public class TimeOfUseTariffAwattarImpl extends AbstractOpenemsComponent
 			var startTimeStamp = ZonedDateTime //
 					.ofInstant(Instant.ofEpochMilli(startTimestampLong), ZoneId.systemDefault())
 					.truncatedTo(ChronoUnit.HOURS);
-
+			
 			// Adding the values in the Map.
 			result.put(startTimeStamp, marketPrice);
 			result.put(startTimeStamp.plusMinutes(15), marketPrice);
@@ -172,4 +176,8 @@ public class TimeOfUseTariffAwattarImpl extends AbstractOpenemsComponent
 		return ImmutableSortedMap.copyOf(result);
 	}
 
+	@Override
+	public String debugLog() {
+		return generateDebugLog(this, this.meta.getCurrency());
+	}
 }

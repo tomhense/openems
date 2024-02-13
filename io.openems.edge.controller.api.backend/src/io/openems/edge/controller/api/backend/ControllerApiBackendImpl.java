@@ -1,5 +1,7 @@
 package io.openems.edge.controller.api.backend;
 
+import static io.openems.common.utils.StringUtils.definedOrElse;
+
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.URI;
@@ -21,9 +23,7 @@ import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.ConfigurationPolicy;
 import org.osgi.service.component.annotations.Deactivate;
 import org.osgi.service.component.annotations.Reference;
-import org.osgi.service.component.annotations.ReferenceCardinality;
-import org.osgi.service.component.annotations.ReferencePolicy;
-import org.osgi.service.component.annotations.ReferencePolicyOption;
+import org.osgi.service.component.annotations.ReferenceScope;
 import org.osgi.service.event.Event;
 import org.osgi.service.event.EventHandler;
 import org.osgi.service.event.propertytypes.EventTopics;
@@ -38,6 +38,7 @@ import io.openems.common.jsonrpc.base.JsonrpcRequest;
 import io.openems.common.jsonrpc.base.JsonrpcResponseSuccess;
 import io.openems.common.jsonrpc.notification.EdgeConfigNotification;
 import io.openems.common.jsonrpc.notification.SystemLogNotification;
+import io.openems.common.oem.OpenemsEdgeOem;
 import io.openems.common.types.EdgeConfig;
 import io.openems.common.utils.ThreadPoolUtils;
 import io.openems.common.websocket.AbstractWebsocketClient;
@@ -50,7 +51,6 @@ import io.openems.edge.common.jsonapi.JsonApi;
 import io.openems.edge.common.user.User;
 import io.openems.edge.controller.api.Controller;
 import io.openems.edge.controller.api.common.ApiWorker;
-import io.openems.edge.timedata.api.Timedata;
 
 @Designate(ocd = Config.class, factory = true)
 @Component(//
@@ -75,8 +75,11 @@ public class ControllerApiBackendImpl extends AbstractOpenemsComponent
 
 	private final Logger log = LoggerFactory.getLogger(ControllerApiBackendImpl.class);
 
-	@Reference(policy = ReferencePolicy.DYNAMIC, policyOption = ReferencePolicyOption.GREEDY, cardinality = ReferenceCardinality.OPTIONAL)
-	private volatile Timedata timedata = null;
+	@Reference
+	private OpenemsEdgeOem oem;
+
+	@Reference(scope = ReferenceScope.PROTOTYPE_REQUIRED)
+	protected ResendHistoricDataWorker resendHistoricDataWorker;
 
 	@Reference
 	protected ComponentManager componentManager;
@@ -99,6 +102,12 @@ public class ControllerApiBackendImpl extends AbstractOpenemsComponent
 		this.apiWorker.setLogChannel(this.getApiWorkerLogChannel());
 	}
 
+	/**
+	 * Activation method.
+	 * 
+	 * @param context the {@link ComponentContext}
+	 * @param config  the {@link Config}
+	 */
 	@Activate
 	private void activate(ComponentContext context, Config config) {
 		this.config = config;
@@ -119,7 +128,7 @@ public class ControllerApiBackendImpl extends AbstractOpenemsComponent
 		// Get URI
 		URI uri = null;
 		try {
-			uri = new URI(config.uri());
+			uri = new URI(definedOrElse(config.uri(), this.oem.getBackendApiUrl()));
 		} catch (URISyntaxException e) {
 			this.log.error("URI [" + config.uri() + "] is invalid: " + e.getMessage());
 			return;
@@ -140,6 +149,15 @@ public class ControllerApiBackendImpl extends AbstractOpenemsComponent
 		// Create Websocket instance
 		this.websocket = new WebsocketClient(this, name, uri, httpHeaders, proxy);
 		this.websocket.start();
+
+		this.resendHistoricDataWorker.setConfig(new ResendHistoricDataWorker.Config(//
+				this.getUnableToSendChannel().address(), //
+				this.getLastSuccessFulResendChannel().address(), //
+				config.resendPriority(), //
+				t -> this.getLastSuccessFulResendChannel().setNextValue(t), //
+				t -> this.websocket.sendMessage(t) //
+		));
+		this.resendHistoricDataWorker.activate(this.id(), false);
 	}
 
 	@Override

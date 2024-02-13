@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -19,9 +20,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
-import io.openems.backend.common.metadata.AlertingSetting;
+import io.openems.backend.common.metadata.UserAlertingSettings;
 import io.openems.backend.common.metadata.Edge;
 import io.openems.backend.common.metadata.EdgeUser;
+import io.openems.backend.common.metadata.User;
 import io.openems.backend.metadata.odoo.Config;
 import io.openems.backend.metadata.odoo.EdgeCache;
 import io.openems.backend.metadata.odoo.Field;
@@ -33,7 +35,6 @@ import io.openems.backend.metadata.odoo.MyEdge;
 import io.openems.backend.metadata.odoo.MyUser;
 import io.openems.backend.metadata.odoo.odoo.Domain.Operator;
 import io.openems.backend.metadata.odoo.odoo.OdooUtils.SuccessResponseAndHeaders;
-import io.openems.common.OpenemsOEM;
 import io.openems.common.exceptions.OpenemsError.OpenemsNamedException;
 import io.openems.common.exceptions.OpenemsException;
 import io.openems.common.jsonrpc.request.GetEdgesRequest.PaginationOptions;
@@ -91,22 +92,6 @@ public class OdooHandler {
 					+ "User [" + edgeUser.getUserId() + "] " //
 					+ "Fields [" + Stream.of(fieldValues).map(FieldValue::toString).collect(Collectors.joining(","))
 					+ "]: " + e.getMessage());
-		}
-	}
-
-	/**
-	 * Adds a message in Odoo Chatter ('mail.thread').
-	 *
-	 * @param edge    the Edge
-	 * @param message the message
-	 */
-	public void addChatterMessage(MyEdge edge, String message) {
-		try {
-			OdooUtils.addChatterMessage(this.credentials, Field.EdgeDevice.ODOO_MODEL, edge.getOdooId(), message);
-		} catch (OpenemsException e) {
-			this.parent.logError(this.log, "Unable to add Chatter Message to Edge [" + edge.getId() + "] " //
-					+ "Message [" + message + "]" //
-					+ ": " + e.getMessage());
 		}
 	}
 
@@ -398,7 +383,8 @@ public class OdooHandler {
 	 * @throws OpenemsNamedException on error
 	 */
 	public byte[] getOdooSetupProtocolReport(int setupProtocolId) throws OpenemsNamedException {
-		return OdooUtils.getOdooReport(this.credentials, "fems.report_fems_setup_protocol_template", setupProtocolId);
+		return OdooUtils.getOdooReport(this.credentials, "openems.report_openems_setup_protocol_template",
+				setupProtocolId);
 	}
 
 	/**
@@ -411,9 +397,9 @@ public class OdooHandler {
 	 */
 	public int submitSetupProtocol(MyUser user, JsonObject setupProtocolJson) throws OpenemsNamedException {
 		var userJson = JsonUtils.getAsJsonObject(setupProtocolJson, "customer");
-		var edgeJson = JsonUtils.getAsJsonObject(setupProtocolJson, "fems");
+		var edgeJson = JsonUtils.getAsJsonObject(setupProtocolJson, "edge");
 		var installerJson = JsonUtils.getAsJsonObject(setupProtocolJson, "installer");
-		var oem = OpenemsOEM.Manufacturer.valueOf(JsonUtils.getAsString(setupProtocolJson, "oem").toUpperCase());
+		var oem = JsonUtils.getAsString(setupProtocolJson, "oem").toUpperCase();
 
 		var edgeId = JsonUtils.getAsString(edgeJson, "id");
 		var foundEdge = OdooUtils.search(this.credentials, Field.EdgeDevice.ODOO_MODEL,
@@ -529,8 +515,7 @@ public class OdooHandler {
 	 * @return the Odoo user id
 	 * @throws OpenemsNamedException on error
 	 */
-	private int createOdooUser(JsonObject userJson, String password, OpenemsOEM.Manufacturer oem)
-			throws OpenemsNamedException {
+	private int createOdooUser(JsonObject userJson, String password, String oem) throws OpenemsNamedException {
 		var customerFields = new HashMap<>(this.updateAddress(userJson));
 		customerFields.putAll(this.updateCompany(userJson));
 
@@ -578,9 +563,9 @@ public class OdooHandler {
 	 * @throws OpenemsException on error
 	 */
 	private void addTagToPartner(int userId) throws OpenemsException {
-		var createdViaIbnTag = OdooUtils.getObjectReference(this.credentials, "fems",
+		var createdViaIbnTag = OdooUtils.getObjectReference(this.credentials, "openems",
 				"res_partner_category_created_via_ibn");
-		var customerTag = OdooUtils.getObjectReference(this.credentials, "fems", "res_partner_category_customer");
+		var customerTag = OdooUtils.getObjectReference(this.credentials, "openems", "res_partner_category_customer");
 
 		var partnerId = this.getOdooPartnerId(userId);
 
@@ -773,8 +758,7 @@ public class OdooHandler {
 	 * @param oem        OEM name
 	 * @throws OpenemsNamedException on error
 	 */
-	public void registerUser(JsonObject jsonObject, OdooUserRole role, OpenemsOEM.Manufacturer oem)
-			throws OpenemsNamedException {
+	public void registerUser(JsonObject jsonObject, OdooUserRole role, String oem) throws OpenemsNamedException {
 		var emailOpt = JsonUtils.getAsOptionalString(jsonObject, "email");
 		if (!emailOpt.isPresent()) {
 			throw new OpenemsException("No email specified");
@@ -815,7 +799,7 @@ public class OdooHandler {
 	 * @param oem        OEM name
 	 * @throws OpenemsNamedException error
 	 */
-	private void sendRegistrationMail(int odooUserId, OpenemsOEM.Manufacturer oem) throws OpenemsNamedException {
+	private void sendRegistrationMail(int odooUserId, String oem) throws OpenemsNamedException {
 		this.sendRegistrationMail(odooUserId, null, oem);
 	}
 
@@ -825,18 +809,20 @@ public class OdooHandler {
 	 * @param odooUserId Odoo user id to send the mail
 	 * @param password   password for the user
 	 * @param oem        OEM name
-	 * @throws OpenemsNamedException error
 	 */
-	private void sendRegistrationMail(int odooUserId, String password, OpenemsOEM.Manufacturer oem)
-			throws OpenemsNamedException {
-		OdooUtils.sendAdminJsonrpcRequest(this.credentials, "/openems_backend/sendRegistrationEmail",
-				JsonUtils.buildJsonObject() //
-						.add("params", JsonUtils.buildJsonObject() //
-								.addProperty("userId", odooUserId) //
-								.addProperty("password", password) //
-								.addProperty("oem", oem) //
-								.build()) //
-						.build());
+	private void sendRegistrationMail(int odooUserId, String password, String oem) {
+		try {
+			OdooUtils.sendAdminJsonrpcRequest(this.credentials, "/openems_backend/sendRegistrationEmail",
+					JsonUtils.buildJsonObject() //
+							.add("params", JsonUtils.buildJsonObject() //
+									.addProperty("userId", odooUserId) //
+									.addProperty("password", password) //
+									.addProperty("oem", oem) //
+									.build()) //
+							.build());
+		} catch (OpenemsNamedException e) {
+			this.log.warn("Unable to send registration mail for Odoo user id [" + odooUserId + "]", e);
+		}
 	}
 
 	/**
@@ -929,13 +915,192 @@ public class OdooHandler {
 	}
 
 	/**
+	 * Gets if the given key can be applied to the given app and edge id.
+	 *
+	 * @param key    the key to be validated
+	 * @param edgeId the edgeId the app should get installed
+	 * @param appId  the appId of the app that should get installed
+	 * @return the Response result as a JsonObject
+	 * @throws OpenemsNamedException on error
+	 */
+	public JsonObject getIsKeyApplicable(String key, String edgeId, String appId) throws OpenemsNamedException {
+		var request = JsonUtils.buildJsonObject() //
+				.add("params", JsonUtils.buildJsonObject() //
+						.addProperty("key", key) //
+						.addProperty("edgeId", edgeId) //
+						.addPropertyIfNotNull("appId", appId) //
+						.build()) //
+				.build();
+
+		var result = JsonUtils.getAsJsonObject(OdooUtils.sendAdminJsonrpcRequest(this.credentials,
+				"/openems_app_center/is_key_applicable", request).result);
+		return result;
+	}
+
+	/**
+	 * Gets the response to a add install app instance history entry.
+	 *
+	 * @param key        the key to install the app with
+	 * @param edgeId     the id of the edge the app gets installed on
+	 * @param appId      the app that gets installed
+	 * @param instanceId the instanceId of the create instance
+	 * @param userId     the user who added the instance
+	 * @return the result as {@link JsonObject}
+	 * @throws OpenemsNamedException on error
+	 */
+	public JsonObject getAddInstallAppInstanceHistory(String key, String edgeId, String appId, UUID instanceId,
+			String userId) throws OpenemsNamedException {
+		var request = JsonUtils.buildJsonObject() //
+				.add("params", JsonUtils.buildJsonObject() //
+						.addProperty("key", key) //
+						.addProperty("edgeId", edgeId) //
+						.addProperty("appId", appId) //
+						.addProperty("instanceId", instanceId.toString()) //
+						.addPropertyIfNotNull("userId", userId) //
+						.build()) //
+				.build();
+
+		return JsonUtils.getAsJsonObject(OdooUtils.sendAdminJsonrpcRequest(this.credentials,
+				"/openems_app_center/add_install_app_instance_history", request).result);
+	}
+
+	/**
+	 * Gets the response to add a deinstall app instance history entry.
+	 *
+	 * @param edgeId     the edge the app gets removed on
+	 * @param appId      the appId of the removed instance
+	 * @param instanceId the instanceId of the removed instance
+	 * @param userId     the user who removed the instance
+	 * @return the result as {@link JsonObject}
+	 * @throws OpenemsNamedException on error
+	 */
+	public JsonObject getAddDeinstallAppInstanceHistory(String edgeId, String appId, UUID instanceId, String userId)
+			throws OpenemsNamedException {
+		var request = JsonUtils.buildJsonObject() //
+				.add("params", JsonUtils.buildJsonObject() //
+						.addProperty("edgeId", edgeId) //
+						.addProperty("appId", appId) //
+						.addProperty("instanceId", instanceId.toString()) //
+						.addPropertyIfNotNull("userId", userId) //
+						.build()) //
+				.build();
+		return JsonUtils.getAsJsonObject(OdooUtils.sendAdminJsonrpcRequest(this.credentials,
+				"/openems_app_center/add_deinstall_app_instance_history", request).result);
+	}
+
+	/**
+	 * Gets the response to register a key.
+	 *
+	 * @param edgeId the edgeId the key gets registered on.
+	 * @param appId  the appId the key gets registered to.
+	 * @param key    the key that gets registered
+	 * @param user   the user who registered the key
+	 * @return the result as {@link JsonObject}
+	 * @throws OpenemsNamedException on error
+	 */
+	public JsonObject getAddRegisterKeyHistory(String edgeId, String appId, String key, MyUser user)
+			throws OpenemsNamedException {
+		var request = JsonUtils.buildJsonObject() //
+				.add("params", JsonUtils.buildJsonObject() //
+						.addProperty("edgeId", edgeId) //
+						.addProperty("key", key) //
+						.addPropertyIfNotNull("appId", appId) //
+						.addProperty("userId", user.getId()) //
+						.build()) //
+				.build();
+		return JsonUtils.getAsJsonObject(OdooUtils.sendAdminJsonrpcRequest(this.credentials,
+				"/openems_app_center/add_register_key_history", request).result);
+	}
+
+	/**
+	 * Gets the response to unregister a key.
+	 * 
+	 * @param edgeId the edgeId the registered key was assigned to.
+	 * @param appId  the appId the registered key was assigned to or null if
+	 *               assigned to edge.
+	 * @param key    the registered key
+	 * @param user   the user who deregistered the key
+	 * @return the response result as a {@link JsonObject}
+	 * @throws OpenemsNamedException on error
+	 */
+	public JsonObject getAddUnregisterKeyHistory(String edgeId, String appId, String key, MyUser user)
+			throws OpenemsNamedException {
+		var request = JsonUtils.buildJsonObject() //
+				.add("params", JsonUtils.buildJsonObject() //
+						.addProperty("edgeId", edgeId) //
+						.addProperty("key", key) //
+						.addPropertyIfNotNull("appId", appId) //
+						.addProperty("user", user.getId()) //
+						.build())
+				.build();
+
+		return JsonUtils.getAsJsonObject(OdooUtils.sendAdminJsonrpcRequest(this.credentials,
+				"/openems_app_center/add_deregister_key_history", request).result);
+	}
+
+	/**
+	 * Gets the registered keys to a edge and app.
+	 *
+	 * @param edgeId the edge the key is registered on
+	 * @param appId  the app the key is registered to
+	 * @return the result as {@link JsonObject}
+	 * @throws OpenemsNamedException on error
+	 */
+	public JsonObject getRegisteredKeys(String edgeId, String appId) throws OpenemsNamedException {
+		var request = JsonUtils.buildJsonObject() //
+				.add("params", JsonUtils.buildJsonObject() //
+						.addProperty("edgeId", edgeId) //
+						.addPropertyIfNotNull("appId", appId) //
+						.build()) //
+				.build();
+		return JsonUtils.getAsJsonObject(OdooUtils.sendAdminJsonrpcRequest(this.credentials,
+				"/openems_app_center/get_registered_key", request).result);
+	}
+
+	/**
+	 * Gets the possible apps to install with this key.
+	 *
+	 * @param key    the apps of which key
+	 * @param edgeId the apps on which edge
+	 * @return the result as {@link JsonObject}
+	 * @throws OpenemsNamedException on error
+	 */
+	public JsonObject getPossibleApps(String key, String edgeId) throws OpenemsNamedException {
+		var request = JsonUtils.buildJsonObject() //
+				.add("params", JsonUtils.buildJsonObject() //
+						.addProperty("edgeId", edgeId) //
+						.addProperty("key", key) //
+						.build()) //
+				.build();
+		return JsonUtils.getAsJsonObject(OdooUtils.sendAdminJsonrpcRequest(this.credentials,
+				"/openems_app_center/get_possible_apps", request).result);
+	}
+
+	/**
+	 * Gets the installed apps.
+	 *
+	 * @param edgeId the apps on which edge
+	 * @return the result as {@link JsonObject}
+	 * @throws OpenemsNamedException on error
+	 */
+	public JsonObject getInstalledApps(String edgeId) throws OpenemsNamedException {
+		var request = JsonUtils.buildJsonObject() //
+				.add("params", JsonUtils.buildJsonObject() //
+						.addProperty("edgeId", edgeId) //
+						.build()) //
+				.build();
+		return JsonUtils.getAsJsonObject(OdooUtils.sendAdminJsonrpcRequest(this.credentials,
+				"/openems_app_center/get_installed_apps", request).result);
+	}
+
+	/**
 	 * get all alerting settings for specified edge.
 	 *
 	 * @param edgeId ID of Edge
 	 * @return list of alerting settings
 	 * @throws OpenemsException on error
 	 */
-	public List<AlertingSetting> getUserAlertingSettings(String edgeId) throws OpenemsException {
+	public List<UserAlertingSettings> getUserAlertingSettings(String edgeId) throws OpenemsException {
 		return this.requestUserAlertingSettings(edgeId, null);
 	}
 
@@ -944,15 +1109,15 @@ public class OdooHandler {
 	 *
 	 * @param edgeId ID of Edge
 	 * @param userId ID of User
-	 * @return {@link AlertingSetting} or {@link null} if no settings are stored
+	 * @return {@link UserAlertingSettings} or {@link null} if no settings are stored
 	 * @throws OpenemsException on error
 	 */
-	public AlertingSetting getUserAlertingSettings(String edgeId, String userId) throws OpenemsException {
+	public UserAlertingSettings getUserAlertingSettings(String edgeId, String userId) throws OpenemsException {
 		var settings = this.requestUserAlertingSettings(edgeId, userId);
 		return settings.isEmpty() ? null : settings.get(0);
 	}
 
-	private List<AlertingSetting> requestUserAlertingSettings(String edgeId, String userId) throws OpenemsException {
+	private List<UserAlertingSettings> requestUserAlertingSettings(String edgeId, String userId) throws OpenemsException {
 		// Define Fields
 		var edgeUserFields = new Field[] { //
 				Field.EdgeDeviceUserRole.ID, //
@@ -984,7 +1149,7 @@ public class OdooHandler {
 			usersMap.put(userIds[i], users[i]);
 		}
 		// create result list;
-		var result = new ArrayList<AlertingSetting>(edgeUsers.length);
+		var result = new ArrayList<UserAlertingSettings>(edgeUsers.length);
 		for (var edgeUser : edgeUsers) {
 			var userIdsArr = OdooUtils.getAs(Field.EdgeDeviceUserRole.USER_ODOO_ID, edgeUser, Object[].class);
 			if (userIdsArr.length != 2) {
@@ -1001,7 +1166,7 @@ public class OdooHandler {
 							edgeUser, String.class, null);
 					var lastNotification = OdooUtils.DateTime.stringToDateTime(lastNotificationStr);
 					result.add(
-							new AlertingSetting(edgeUserId, login, Role.getRole(role), lastNotification, timeToWait));
+							new UserAlertingSettings(edgeUserId, login, Role.getRole(role), lastNotification, timeToWait));
 				}
 			}
 		}
@@ -1016,7 +1181,7 @@ public class OdooHandler {
 	 * @param userAlertingSettings list of users
 	 * @throws OpenemsException on error
 	 */
-	public void setUserAlertingSettings(MyUser user, String edgeId, List<AlertingSetting> userAlertingSettings)
+	public void setUserAlertingSettings(MyUser user, String edgeId, List<UserAlertingSettings> userAlertingSettings)
 			throws OpenemsException {
 		// search edge by id
 		var edgeIds = OdooUtils.search(this.credentials, Field.EdgeDevice.ODOO_MODEL,
@@ -1061,7 +1226,9 @@ public class OdooHandler {
 				.add("params", JsonUtils.buildJsonObject() //
 						.addProperty("page", paginationOptions.getPage()) //
 						.addProperty("limit", paginationOptions.getLimit()) //
-						.addPropertyIfNotNull("query", paginationOptions.getQuery()) //
+						.add("query", JsonUtils.getAsJsonElement(paginationOptions.getQuery()))
+						.onlyIf(paginationOptions.getSearchParams() != null,
+								b -> b.add("searchParams", paginationOptions.getSearchParams().toJson()))//
 						.build()) //
 				.build();
 
@@ -1078,7 +1245,7 @@ public class OdooHandler {
 	 * @return the edge with the role of the user
 	 * @throws OpenemsNamedException on error
 	 */
-	public JsonObject getEdgeWithRole(MyUser user, String edgeId) throws OpenemsNamedException {
+	public JsonObject getEdgeWithRole(User user, String edgeId) throws OpenemsNamedException {
 		var request = JsonUtils.buildJsonObject() //
 				.add("params", JsonUtils.buildJsonObject() //
 						.addProperty("edge_id", edgeId) //
@@ -1088,6 +1255,22 @@ public class OdooHandler {
 		return JsonUtils.getAsJsonObject(
 				OdooUtils.sendJsonrpcRequest(this.credentials.getUrl() + "/openems_backend/get_edge_with_role",
 						"session_id=" + user.getToken(), request).result);
+	}
+
+	/**
+	 * Updates the settings of a user.
+	 * 
+	 * @param user     the user
+	 * @param settings the settings of the user
+	 */
+	public void updateUserSettings(User user, JsonObject settings) throws OpenemsNamedException {
+		OdooUtils.sendAdminJsonrpcRequest(this.credentials, "/openems_backend/set_user_settings",
+				JsonUtils.buildJsonObject() //
+						.add("params", JsonUtils.buildJsonObject() //
+								.add("settings", settings)//
+								.addProperty("userId", user.getId()) //
+								.build()) //
+						.build());
 	}
 
 }

@@ -118,6 +118,7 @@ local.properties
 *.zip
 *.tar.gz
 *.rar
+/*.deb
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
@@ -197,9 +198,7 @@ typings/
 
 ### Gradle ###
 .gradle
-**/build/
-# do not ignore '/doc/build' directory
-!*doc/build/
+/build/
 
 # Ignore Gradle GUI config
 gradle-app.setting
@@ -228,3 +227,6 @@ gradle-app.setting
 # OpenEMS temp files
 io.openems.edge.controller.api.mqtt/edge0
 io.openems.edge.application/c:/
+
+### Debian ###
+!tools/debian/**

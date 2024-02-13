@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.util.Hashtable;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -129,8 +130,10 @@ public class AppManagerImplTest {
 								.addProperty("backupEnable", "DISABLE") //
 								.addProperty("feedPowerEnable", "ENABLE") //
 								.addProperty("feedPowerPara", 10000) //
+								.addProperty("controlMode", "SMART") //
 								.addProperty("setfeedInPowerSettings", "LAGGING_0_95") //
 								.addProperty("mpptForShadowEnable", shadowManagmentDisabled ? "DISABLE" : "ENABLE") //
+								.addProperty("rcrEnable", "DISABLE") //
 								.build()) //
 						.build()) //
 				.add("predictor0", JsonUtils.buildJsonObject() //
@@ -298,6 +301,13 @@ public class AppManagerImplTest {
 			);
 		});
 
+		final var config = this.appManagerTestBundle.cm.getConfiguration(
+				this.appManagerTestBundle.componentManger.getEdgeConfig().getComponent("scheduler0").get().getPid(),
+				null);
+		final var props = new Hashtable<String, Object>();
+		props.put("controllers.ids", new String[] { "ctrlPrepareBatteryExtension0", "ctrlGridOptimizedCharge0",
+				"ctrlEssSurplusFeedToGrid0", "ctrlBalancing0" });
+		config.update(props);
 	}
 
 	@Test
@@ -314,12 +324,12 @@ public class AppManagerImplTest {
 
 	@Test
 	public void testFindAppById() {
-		assertEquals(this.homeApp, this.appManagerTestBundle.sut.findAppById("App.FENECON.Home"));
+		assertEquals(this.homeApp, this.appManagerTestBundle.sut.findAppById("App.FENECON.Home").orElse(null));
 	}
 
 	@Test
 	public void testCheckCardinalitySingle() throws Exception {
-		var checkable = this.appManagerTestBundle.checkablesBundle.checkCardinality;
+		var checkable = this.appManagerTestBundle.checkablesBundle.checkCardinality();
 		checkable.setProperties(new ValidatorConfig.MapBuilder<>(new TreeMap<String, Object>()) //
 				.put("openemsApp", this.homeApp) //
 				.build());
@@ -333,7 +343,7 @@ public class AppManagerImplTest {
 				UUID.randomUUID(), JsonUtils.buildJsonObject().build(), null));
 		this.appManagerTestBundle.sut.instantiatedApps.add(new OpenemsAppInstance(this.kebaEvcsApp.getAppId(), "alias",
 				UUID.randomUUID(), JsonUtils.buildJsonObject().build(), null));
-		var checkable = this.appManagerTestBundle.checkablesBundle.checkCardinality;
+		var checkable = this.appManagerTestBundle.checkablesBundle.checkCardinality();
 		checkable.setProperties(new ValidatorConfig.MapBuilder<>(new TreeMap<String, Object>()) //
 				.put("openemsApp", this.kebaEvcsApp) //
 				.build());
@@ -345,7 +355,7 @@ public class AppManagerImplTest {
 	public void testCheckCardinalitySingleInCategorie() throws Exception {
 		this.appManagerTestBundle.sut.instantiatedApps.add(new OpenemsAppInstance(this.awattarApp.getAppId(), "alias",
 				UUID.randomUUID(), JsonUtils.buildJsonObject().build(), null));
-		var checkable = this.appManagerTestBundle.checkablesBundle.checkCardinality;
+		var checkable = this.appManagerTestBundle.checkablesBundle.checkCardinality();
 		checkable.setProperties(new ValidatorConfig.MapBuilder<>(new TreeMap<String, Object>()) //
 				.put("openemsApp", this.stromdao) //
 				.build());

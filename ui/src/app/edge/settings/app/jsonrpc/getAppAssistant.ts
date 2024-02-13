@@ -5,7 +5,7 @@ import { JsonrpcRequest, JsonrpcResponseSuccess } from "../../../../shared/jsonr
 
 /**
  * Represents a JSON-RPC Request for 'getAppAssistant'.
- * 
+ *
  * <pre>
  * {
  *   "jsonrpc": "2.0",
@@ -16,10 +16,10 @@ import { JsonrpcRequest, JsonrpcResponseSuccess } from "../../../../shared/jsonr
  *   }
  * }
  * </pre>
- * 
+ *
  * <p>
  * Response:
- * 
+ *
  * <pre>
  * {
  *   "jsonrpc": "2.0",
@@ -41,7 +41,7 @@ export namespace GetAppAssistant {
         public constructor(
             public override readonly params: {
                 appId: string
-            }
+            },
         ) {
             super(METHOD, params);
         }
@@ -51,7 +51,7 @@ export namespace GetAppAssistant {
 
         public constructor(
             public override readonly id: string,
-            public override readonly result: AppAssistant
+            public override readonly result: AppAssistant,
         ) {
             super(id, result);
         }
@@ -83,13 +83,18 @@ export namespace GetAppAssistant {
     export function setInitialModel(fields: FormlyFieldConfig[], model: {}): FormlyFieldConfig[] {
         return fields.map(f => {
             function recursivIterate(field: FormlyFieldConfig) {
-                field['initialModel'] = structuredClone(model);
-                if (!field.fieldGroup) {
+                if (!field) {
                     return;
                 }
-                for (let f of field.fieldGroup) {
-                    recursivIterate(f);
-                }
+                field['initialModel'] = structuredClone(model);
+                [field.fieldGroup, field.templateOptions?.fields ?? field.props?.fields].forEach(fieldGroup => {
+                    if (!fieldGroup) {
+                        return;
+                    }
+                    for (let f of fieldGroup) {
+                        recursivIterate(f);
+                    }
+                });
             }
             recursivIterate(f);
             return f;
@@ -98,7 +103,7 @@ export namespace GetAppAssistant {
 
     /**
      * Iterates over the given field an all child fields.
-     * 
+     *
      * @param field the current field to iterate thrue
      * @returns true if any field has 'ALIAS' as their key
      */
@@ -135,20 +140,109 @@ export namespace GetAppAssistant {
             }
         }
 
+        convertFormlyOptionGroupPicker(rootFields, field);
+        convertFormlyReorderArray(rootFields, field);
+
         let childHasAlias = false;
-        if (field.fieldGroup) {
-            for (let f of field.fieldGroup) {
+        [field.fieldGroup, field.templateOptions?.fields ?? field.props?.fields].forEach(fieldGroup => {
+            if (!fieldGroup) {
+                return;
+            }
+            for (let f of fieldGroup) {
                 if (eachFieldRecursive(rootFields, f)) {
                     childHasAlias = true;
                 }
             }
-        }
+        });
         if (field.key == 'ALIAS') {
             return true;
         }
         return childHasAlias;
     }
 
+    /**
+     * Converts expression strings of a 'formly-option-group-picker' to functions.
+     *
+     * e. g.
+     * {
+     *     group: 'exampleGroup',
+     *     options: [
+     *          {
+     *              value: 'io0/Relay1',
+     *              expressions: {
+     *                  disabledString: "model.OUPUT_CHANNLE_1 !== 'io0/Relay1'"
+     *              }
+     *          }
+     *     ]
+     * }
+     * gets converted to:
+     * {
+     *     group: 'exampleGroup',
+     *     options: [
+     *          {
+     *              value: 'io0/Relay1',
+     *              expressions: {
+     *                  disabled: (field: FormlyFieldConfigWithInitialModel) => f.model.OUPUT_CHANNLE_1 !== 'io0/Relay1'
+     *              }
+     *          }
+     *     ]
+     * }
+     *
+     * @param rootFields the root fields
+     * @param field the current field
+     */
+    function convertFormlyOptionGroupPicker(rootFields: FormlyFieldConfig[], field: FormlyFieldConfig) {
+        if (field.type !== 'formly-option-group-picker') {
+            return;
+        }
+        (field.templateOptions ?? field.props).options?.forEach((optionGroup) => {
+            if (!optionGroup) {
+                return;
+            }
+            (optionGroup['options'] as any[]).forEach((option) => {
+                for (const [key, value] of Object.entries(option?.expressions ?? {})) {
+                    if (!key.endsWith("String")) {
+                        continue;
+                    }
+
+                    const expressionString: string = value as string;
+                    if (expressionString) {
+                        const convertedExpression = GetAppAssistant.convertStringExpressions(rootFields, field, expressionString);
+                        const func = Function('model', 'formState', 'field', 'control', 'initialModel', `return ${convertedExpression};`);
+                        option['expressions'][key.substring(0, key.indexOf("String"))] = (f: FormlyFieldConfigWithInitialModel) => {
+                            return func(f.model, f.options.formState, f, f.formControl, f.initialModel);
+                        };
+                    }
+                }
+            });
+        });
+    }
+
+    function convertFormlyReorderArray(rootFields: FormlyFieldConfig[], field: FormlyFieldConfig) {
+        if (field.type !== 'reorder-array') {
+            return;
+        }
+        (field.templateOptions ?? field.props).selectOptions?.forEach((selectOption) => {
+            if (!selectOption) {
+                return;
+            }
+
+            for (const [key, value] of Object.entries(selectOption?.expressions ?? {})) {
+                if (!key.endsWith("String")) {
+                    continue;
+                }
+
+                const expressionString: string = value as string;
+                if (expressionString) {
+                    const convertedExpression = GetAppAssistant.convertStringExpressions(rootFields, field, expressionString);
+                    const func = Function('model', 'formState', 'field', 'control', 'initialModel', `return ${convertedExpression};`);
+                    selectOption['expressions'][key.substring(0, key.indexOf("String"))] = (f: FormlyFieldConfigWithInitialModel) => {
+                        return func(f.model, f.options.formState, f, f.formControl, f.initialModel);
+                    };
+                }
+            }
+        });
+    }
 
     export function convertStringExpressions(rootFields: FormlyFieldConfig[], field: FormlyFieldConfig, expression: string): string {
         return ['model.', 'initialModel.', 'control.value.'].reduce((p, c) => convertStringExpression(rootFields, field, p, c), expression);
@@ -156,11 +250,11 @@ export namespace GetAppAssistant {
 
     /**
      * Converts a string expression e. g.
-     * 
+     *
      * "model.A < model.B" to "+model.A < +model.B"
-     * 
+     *
      * if the property value of the model is a number.
-     * 
+     *
      * @param field         the field
      * @param expression    the expression to convert
      * @returns the converted expression
